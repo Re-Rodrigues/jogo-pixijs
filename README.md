@@ -119,7 +119,7 @@ Parte dos recursos visuais utilizados no jogo foi obtida no pacote **DungeonTile
 - Criador: [0x72](https://0x72.itch.io/dungeontileset-ii)
 - Pacote: [DungeonTileset II](https://0x72.itch.io/dungeontileset-ii)
 
-## 👥 Integrantes
+## 👥 Integrantes Grupo 19
 
 - **Augusto Cezar de Almeida Pinto**
 - **Renan Rodrigues da Silva**
