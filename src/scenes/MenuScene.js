@@ -33,7 +33,7 @@ export class MenuScene {
     this.container.addChild(menuPanel);
 
     const title = new Text({
-      text: "DUNGEON RUSH",
+      text: "DUNGEONFALL",
       style: new TextStyle({
         fontFamily: "Georgia",
         fontSize: 30,
