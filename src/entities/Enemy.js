@@ -5,10 +5,9 @@ import {
   ENEMY_SIZE,
   ENEMY_SPEED,
   GAME_WIDTH,
-  GAME_HEIGHT
+  GAME_HEIGHT,
+  ARENA_INSET
 } from "../config.js";
-
-const WALL_SIZE = 24;
 const ENEMY_SPRITE_FRAMES = {
   melee: { x: 368, y: 64 },
   ranged: { x: 368, y: 304 },
@@ -272,10 +271,10 @@ export class Enemy {
 
     if (this.bossState === "charge") {
       this.bossStateElapsed -= deltaTime;
-      const minX = WALL_SIZE + this.size / 2;
-      const maxX = GAME_WIDTH - WALL_SIZE - this.size / 2;
-      const minY = WALL_SIZE + this.size / 2;
-      const maxY = GAME_HEIGHT - WALL_SIZE - this.size / 2;
+      const minX = ARENA_INSET + this.size / 2;
+      const maxX = GAME_WIDTH - ARENA_INSET - this.size / 2;
+      const minY = ARENA_INSET + this.size / 2;
+      const maxY = GAME_HEIGHT - ARENA_INSET - this.size / 2;
       const nextX = this.container.x + this.bossChargeDirection.x * 340 * deltaTime;
       const nextY = this.container.y + this.bossChargeDirection.y * 340 * deltaTime;
       const clampedX = Math.max(minX, Math.min(maxX, nextX));
@@ -396,12 +395,15 @@ export class Enemy {
     const halfSize = this.size / 2;
     const nextX = this.container.x + (dx / distance) * speed * deltaTime;
     const nextY = this.container.y + (dy / distance) * speed * deltaTime;
-    if (nextX - halfSize >= WALL_SIZE &&
-        nextX + halfSize <= GAME_WIDTH - WALL_SIZE) {
+    const minX = ARENA_INSET + halfSize;
+    const maxX = GAME_WIDTH - ARENA_INSET - halfSize;
+    const minY = ARENA_INSET + halfSize;
+    const maxY = GAME_HEIGHT - ARENA_INSET - halfSize;
+
+    if (nextX >= minX && nextX <= maxX) {
       this.container.x = nextX;
     }
-    if (nextY - halfSize >= WALL_SIZE &&
-        nextY + halfSize <= GAME_HEIGHT - WALL_SIZE) {
+    if (nextY >= minY && nextY <= maxY) {
       this.container.y = nextY;
     }
   }

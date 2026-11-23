@@ -68,6 +68,26 @@ const enemyAnimations = Object.fromEntries(
   })
 );
 
+const [
+  heroiPortrait,
+  aldricPortrait,
+  grukPortrait,
+  araknePortrait
+] = await Promise.all([
+  Assets.load("/assets/npc/Heroi.png"),
+  Assets.load("/assets/npc/Aldric.png"),
+  Assets.load("/assets/npc/Gruk.png"),
+  Assets.load("/assets/npc/Arakne.png")
+]);
+
+const npcTextures = {
+  Heroi: heroiPortrait,
+  Aldric: aldricPortrait,
+  Gruk: grukPortrait,
+  Arakne: araknePortrait,
+  Guardiao: enemyAnimations.big_zombie.idle[0]
+};
+
 await app.init({
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
@@ -175,6 +195,7 @@ function openGame() {
     playerTextures,
     playerFlipTextures,
     enemyAnimations,
+    npcTextures,
     dungeonTexture,
     enemyTexture,
     paperUiTexture

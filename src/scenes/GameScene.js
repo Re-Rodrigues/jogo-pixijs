@@ -7,7 +7,7 @@ import {
   TextStyle,
   Texture
 } from "pixi.js";
-import { GAME_WIDTH, GAME_HEIGHT, COLORS } from "../config.js";
+import { GAME_WIDTH, GAME_HEIGHT, COLORS, ARENA_INSET } from "../config.js";
 import { Player } from "../entities/Player.js";
 import { Enemy } from "../entities/Enemy.js";
 import { InputSystem } from "../systems/InputSystem.js";
@@ -30,7 +30,8 @@ export class GameScene {
     enemyAnimations,
     paperUiTexture,
     playerTextures,
-    playerFlipTextures
+    playerFlipTextures,
+    npcTextures = {}
   }) {
     this.container = new Container();
     this.onMenu = onMenu;
@@ -61,6 +62,11 @@ export class GameScene {
     this.enemyAnimations = enemyAnimations;
     this.lastEnemyVisuals = new Map();
     this.paperUiTexture = paperUiTexture;
+    this.npcTextures = npcTextures;
+    this.cheatSequence = ["arrowup", "arrowup", "arrowdown", "arrowdown", "arrowleft", "arrowright", "arrowleft", "arrowright", "b", "a"];
+    this.cheatSequenceIndex = 0;
+    this.cheatActivated = false;
+    this.cheatStatus = null;
 
     this.drawRoom(dungeonTexture);
 
@@ -221,6 +227,16 @@ export class GameScene {
     this.started = true;
     this.container.removeChild(this.intro);
     this.intro.destroy({ children: true });
+    this.startDialogue([
+      { speaker: "Aldric", name: "Mestre Aldric", text: "Então você realmente decidiu ir?" },
+      { speaker: "Heroi", name: "Herói", text: "Não podemos continuar esperando. As criaturas estão cada vez mais próximas da vila." },
+      { speaker: "Aldric", name: "Mestre Aldric", text: "Aquela masmorra guarda poderes que você sequer consegue imaginar. A magia que existe lá dentro é antiga e extremamente perigosa." },
+      { speaker: "Heroi", name: "Herói", text: "Passei anos estudando e treinando. Estou preparado." },
+      { speaker: "Aldric", name: "Mestre Aldric", text: "Conhecimento e poder não são a mesma coisa, meu aprendiz. Não deixe que a magia daquela masmorra consuma você." },
+      { speaker: "Heroi", name: "Herói", text: "Vou acabar com essa ameaça, mestre." },
+      { speaker: "Aldric", name: "Mestre Aldric", text: "Então vá. E lembre-se: até a magia mais poderosa pode se tornar uma maldição nas mãos erradas." },
+      { speaker: "Heroi", name: "Herói", text: "Voltarei quando tudo isso acabar." }
+    ]);
   }
 
   drawRoom(dungeonTexture) {
@@ -230,7 +246,89 @@ export class GameScene {
     this.container.addChild(background);
   }
 
+  updateCheatCode() {
+    const cheatKeys = ["arrowup", "arrowdown", "arrowleft", "arrowright", "b", "a"];
+
+    for (const key of cheatKeys) {
+      if (!this.input.consumePressed(key)) {
+        continue;
+      }
+
+      if (key === this.cheatSequence[this.cheatSequenceIndex]) {
+        this.cheatSequenceIndex += 1;
+        if (this.cheatSequenceIndex === this.cheatSequence.length) {
+          this.activateDamageCheat();
+          this.cheatSequenceIndex = 0;
+        }
+      } else {
+        this.cheatSequenceIndex =
+          key === this.cheatSequence[0] ? 1 : 0;
+      }
+    }
+  }
+
+  activateDamageCheat() {
+    if (!this.cheatActivated) {
+      this.player.damageMultiplier *= 500;
+      this.cheatActivated = true;
+    }
+
+    if (this.cheatStatus) {
+      this.container.removeChild(this.cheatStatus.container);
+      this.cheatStatus.container.destroy({ children: true });
+    }
+
+    const container = new Container();
+    container.x = GAME_WIDTH / 2;
+    container.y = 60;
+
+    container.addChild(
+      new Graphics()
+        .roundRect(-190, -18, 380, 44, 8)
+        .fill({ color: 0x17141b, alpha: 0.94 })
+        .roundRect(-190, -18, 380, 44, 8)
+        .stroke({ width: 2, color: 0xffd166 })
+    );
+
+    const text = new Text({
+      text: this.cheatActivated ? "CHEAT ATIVADO: DANO 500x" : "",
+      style: new TextStyle({
+        fontFamily: "monospace",
+        fontSize: 18,
+        fontWeight: "bold",
+        fill: 0xffd166,
+        letterSpacing: 1
+      })
+    });
+    text.anchor.set(0.5);
+    text.y = 4;
+    container.addChild(text);
+
+    this.cheatStatus = { container, elapsed: 0, duration: 3 };
+    this.container.addChild(container);
+  }
+
+  updateCheatStatus(deltaTime) {
+    if (!this.cheatStatus) {
+      return;
+    }
+
+    this.cheatStatus.elapsed += deltaTime;
+    this.cheatStatus.container.alpha = this.cheatStatus.elapsed < 2.4
+      ? 1
+      : Math.max(0, 1 - (this.cheatStatus.elapsed - 2.4) / 0.6);
+
+    if (this.cheatStatus.elapsed >= this.cheatStatus.duration) {
+      this.container.removeChild(this.cheatStatus.container);
+      this.cheatStatus.container.destroy({ children: true });
+      this.cheatStatus = null;
+    }
+  }
+
   update(deltaTime) {
+    this.updateCheatCode();
+    this.updateCheatStatus(deltaTime);
+
     if (this.gameOver) {
       if (this.input.isDown("r") && this.input.consumePressed("r")) {
         this.onRestart();
@@ -241,6 +339,14 @@ export class GameScene {
     }
 
     if (this.gameCompleted) {
+      return;
+    }
+
+    if (this.dialogue) {
+      this.updateDialogue(deltaTime);
+      if (this.input.consumePressed(" ") || this.input.consumePressed("enter")) {
+        this.advanceDialogue();
+      }
       return;
     }
 
@@ -611,23 +717,28 @@ export class GameScene {
   }
 
   spawnEnemy(type) {
-    const margin = 48;
+    const size = type === "large" ? 40 : type === "boss" ? 64 : 24;
+    const halfSize = size / 2;
+    const minX = ARENA_INSET + halfSize;
+    const maxX = GAME_WIDTH - ARENA_INSET - halfSize;
+    const minY = ARENA_INSET + halfSize;
+    const maxY = GAME_HEIGHT - ARENA_INSET - halfSize;
     const side = Math.floor(Math.random() * 4);
     let x;
     let y;
 
     if (side === 0) {
-      x = margin + Math.random() * (GAME_WIDTH - margin * 2);
-      y = margin;
+      x = minX + Math.random() * (maxX - minX);
+      y = minY;
     } else if (side === 1) {
-      x = GAME_WIDTH - margin;
-      y = margin + Math.random() * (GAME_HEIGHT - margin * 2);
+      x = maxX;
+      y = minY + Math.random() * (maxY - minY);
     } else if (side === 2) {
-      x = margin + Math.random() * (GAME_WIDTH - margin * 2);
-      y = GAME_HEIGHT - margin;
+      x = minX + Math.random() * (maxX - minX);
+      y = maxY;
     } else {
-      x = margin;
-      y = margin + Math.random() * (GAME_HEIGHT - margin * 2);
+      x = minX;
+      y = minY + Math.random() * (maxY - minY);
     }
 
     const variants = ENEMY_VISUAL_VARIANTS[type];
@@ -673,6 +784,25 @@ export class GameScene {
     this.enemies.push(boss);
     this.container.addChild(boss.container);
     this.hud.setPhase(`${phase.name} - Boss: ${boss.name}`);
+
+    if (this.phaseIndex === 9) {
+      this.startDialogue([
+        { speaker: "Gruk", name: "Gruk", text: "Então é isso... chegamos ao fim." },
+        { speaker: "Heroi", name: "Herói", text: "Você não precisa continuar comigo, Gruk." },
+        { speaker: "Gruk", name: "Gruk", text: "E perder a chance de ver aquele desgraçado cair? Nem pensar!" },
+        { speaker: "Heroi", name: "Herói", text: "Depois de tudo que passamos, acho que você merece voltar para casa." },
+        { speaker: "Gruk", name: "Gruk", text: "Casa? HA! Talvez eu finalmente possa ter uma vida normal depois disso." },
+        { speaker: "Gruk", name: "Gruk", text: "Vá lá, maguinho. Acabe com ele por todos nós." },
+        { speaker: "Heroi", name: "Herói", text: "Pode deixar. Isso termina agora." },
+        { speaker: "Guardiao", name: "Guardião Final", text: "Mais um mortal... buscando o poder que não compreende." },
+        { speaker: "Heroi", name: "Herói", text: "Seu domínio sobre esta masmorra termina hoje." },
+        { speaker: "Guardiao", name: "Guardião Final", text: "Você sente essa energia, não sente?" },
+        { speaker: "Heroi", name: "Herói", text: "Sinto apenas a corrupção que você espalhou por este lugar." },
+        { speaker: "Guardiao", name: "Guardião Final", text: "A fonte me pertence! Eu sou o coração desta masmorra!" },
+        { speaker: "Heroi", name: "Herói", text: "Você deveria protegê-la, não destruir tudo ao seu redor." },
+        { speaker: "Guardiao", name: "Guardião Final", text: "SILÊNCIO! Você não tomará de mim aquilo que conquistei!" }
+      ]);
+    }
   }
 
   updateProjectiles(deltaTime) {
@@ -704,8 +834,8 @@ export class GameScene {
         continue;
       }
 
-      if (projectile.x < 24 || projectile.x > GAME_WIDTH - 24 ||
-          projectile.y < 24 || projectile.y > GAME_HEIGHT - 24) {
+      if (projectile.x < ARENA_INSET || projectile.x > GAME_WIDTH - ARENA_INSET ||
+          projectile.y < ARENA_INSET || projectile.y > GAME_HEIGHT - ARENA_INSET) {
         this.projectiles.splice(index, 1);
       }
     }
@@ -755,8 +885,8 @@ export class GameScene {
       }
 
       if (hitEnemy ||
-          projectile.x < 24 || projectile.x > GAME_WIDTH - 24 ||
-          projectile.y < 24 || projectile.y > GAME_HEIGHT - 24) {
+          projectile.x < ARENA_INSET || projectile.x > GAME_WIDTH - ARENA_INSET ||
+          projectile.y < ARENA_INSET || projectile.y > GAME_HEIGHT - ARENA_INSET) {
         this.playerProjectiles.splice(index, 1);
       }
     }
@@ -790,15 +920,25 @@ export class GameScene {
       this.projectiles.length = 0;
       this.playerProjectiles.length = 0;
       this.projectileGraphics.clear();
-      this.finishPhase();
+      this.finishPhase(true);
     }
   }
 
-  finishPhase() {
+  finishPhase(bossDefeated = false) {
     this.projectiles.length = 0;
     this.playerProjectiles.length = 0;
     this.projectileGraphics.clear();
 
+    const dialogue = this.getPhaseCompletionDialogue(bossDefeated);
+    if (dialogue) {
+      this.startDialogue(dialogue, () => this.finishPhaseWithoutDialogue());
+      return;
+    }
+
+    this.finishPhaseWithoutDialogue();
+  }
+
+  finishPhaseWithoutDialogue() {
     if (this.phaseIndex < PHASES.length - 1) {
       this.createUpgradeSelection();
       return;
@@ -808,6 +948,303 @@ export class GameScene {
     this.paused = true;
     this.hud.setPhase("Todas as fases concluídas!");
     this.createCompletionOverlay();
+  }
+
+  getPhaseCompletionDialogue(bossDefeated) {
+    const dialogues = {
+      0: [
+        { speaker: "Gruk", name: "Gruk", text: "Ei! Humano! Espere!" },
+        { speaker: "Heroi", name: "Herói", text: "Um orc?!", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Calma, calma! Não quero lutar com você." },
+        { speaker: "Heroi", name: "Herói", text: "O que faz aqui?", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Vivo neste buraco há muitos anos. E posso dizer uma coisa... essa masmorra está cada vez pior." },
+        { speaker: "Heroi", name: "Herói", text: "Pior? Pensei que monstros gostassem de viver aqui.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Gostavam! Mas desde que o Guardião Final tomou o controle, tudo mudou." },
+        { speaker: "Heroi", name: "Herói", text: "Então você também quer acabar com ele?", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Eu? Enfrentar aquela coisa? HA! Não sou tão maluco assim." },
+        { speaker: "Gruk", name: "Gruk", text: "Mas posso ajudar você. Conheço alguns caminhos e talvez consiga encontrar coisas úteis pelo caminho." },
+        { speaker: "Heroi", name: "Herói", text: "Por que deveria confiar em você?", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Porque, maguinho, parece que somos os únicos dois aqui que querem ver este lugar destruído!" }
+      ],
+      1: [
+        { speaker: "Gruk", name: "Gruk", text: "Pelas pedras da montanha! Você realmente derrotou o Bruto!" },
+        { speaker: "Heroi", name: "Herói", text: "Ele era muito mais forte do que parecia.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Aquele grandalhão costumava proteger esta caverna. Era meio estúpido, mas tinha um bom coração." },
+        { speaker: "Heroi", name: "Herói", text: "Então por que me atacou?", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "A corrupção do Guardião. Ela transforma até os mais pacíficos em criaturas violentas." },
+        { speaker: "Heroi", name: "Herói", text: "Então todos aqui podem estar sofrendo com isso...", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Exatamente. Continue seguindo. Quanto mais fundo você chegar, mais forte será a influência dele." }
+      ],
+      2: [
+        { speaker: "Arakne", name: "Arakne", text: "Ora, ora... um humano passeando pelas minhas teias." },
+        { speaker: "Heroi", name: "Herói", text: "Quem está aí?!", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Que falta de educação! Não é assim que se cumprimenta uma dama." },
+        { speaker: "Heroi", name: "Herói", text: "Uma aranha falante?!", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "E você é um humano que fala sozinho. Estamos quites." },
+        { speaker: "Heroi", name: "Herói", text: "Você vai me atacar?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Se quisesse, já teria feito isso. Não sou muito fã dos servos daquele monstro." },
+        { speaker: "Heroi", name: "Herói", text: "Você conhece o Guardião Final?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Conheço o suficiente para saber que ninguém deveria chegar perto dele." },
+        { speaker: "Heroi", name: "Herói", text: "Então por que ainda vive aqui?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Digamos que nem todos temos o luxo de escolher onde morar." },
+        { speaker: "Arakne", name: "Arakne", text: "Mas você parece determinado demais para desistir. Talvez possamos fazer um acordo..." }
+      ],
+      3: [
+        { speaker: "Arakne", name: "Arakne", text: "Impressionante! O famoso Lorde das Setas finalmente caiu." },
+        { speaker: "Heroi", name: "Herói", text: "Você conhece esse também?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Ele já foi um grande arqueiro. Protegia as passagens superiores da masmorra." },
+        { speaker: "Heroi", name: "Herói", text: "Mais uma criatura corrompida...", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Está começando a entender. O Guardião não precisa de aliados. Precisa de escravos." },
+        { speaker: "Heroi", name: "Herói", text: "Então vou libertar todos eles.", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Que discurso bonito! Só espero que sua magia seja tão poderosa quanto suas palavras." }
+      ],
+      4: [
+        { speaker: "Gruk", name: "Gruk", text: "Estamos chegando perto das profundezas..." },
+        { speaker: "Heroi", name: "Herói", text: "Você parece preocupado.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "E estou! Sabe, eu já tentei chegar até aqui antes. Mas fui obrigado a voltar." },
+        { speaker: "Heroi", name: "Herói", text: "O que aconteceu?", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "O Guardião está ficando mais forte. Quanto mais perto chegamos dele, mais a masmorra parece ganhar vida." },
+        { speaker: "Heroi", name: "Herói", text: "Então é aqui que tudo termina.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Não se empolgue, humano. Ainda temos muita coisa tentando nos matar pela frente." },
+        { speaker: "Heroi", name: "Herói", text: "Não vou desistir agora.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "É bom mesmo! Já estou começando a gostar de ter você por perto." }
+      ],
+      5: [
+        { speaker: "Gruk", name: "Gruk", text: "Não acredito... O Golem Carmesim também caiu!" },
+        { speaker: "Heroi", name: "Herói", text: "Ele parecia estar protegendo alguma coisa.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "E estava. Dizem que seu núcleo mantém parte da energia da masmorra." },
+        { speaker: "Heroi", name: "Herói", text: "Senti uma energia estranha quando ele caiu.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Aquilo era parte do poder que mantém essa masmorra viva." },
+        { speaker: "Heroi", name: "Herói", text: "Então a magia daqui está ligada ao Guardião?", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Exatamente. E tenho a impressão de que ele já percebeu sua presença." },
+        { speaker: "Heroi", name: "Herói", text: "Que perceba. Estou chegando para acabar com isso.", noNpcHighlight: true }
+      ],
+      6: [
+        { speaker: "Arakne", name: "Arakne", text: "Finalmente chegou até aqui..." },
+        { speaker: "Heroi", name: "Herói", text: "O que está acontecendo neste lugar?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "A masmorra não é apenas uma construção. Ela foi criada para guardar uma antiga fonte de poder." },
+        { speaker: "Heroi", name: "Herói", text: "E o Guardião?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Ele era o protetor dessa fonte. Mas, com o passar dos anos, começou a absorver seu poder." },
+        { speaker: "Heroi", name: "Herói", text: "E acabou sendo corrompido?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Exatamente. Agora ele não protege mais nada. Quer apenas consumir tudo que existe." },
+        { speaker: "Heroi", name: "Herói", text: "Então preciso acabar com isso.", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Existe algo que você precisa saber, humano." },
+        { speaker: "Heroi", name: "Herói", text: "O quê?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Sua magia é diferente. A fonte de poder está reagindo à sua presença." },
+        { speaker: "Heroi", name: "Herói", text: "O que isso significa?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Talvez você tenha mais em comum com este lugar do que imagina." },
+        { speaker: "Arakne", name: "Arakne", text: "Mas não importa. Se quiser sobreviver, terá que continuar." }
+      ],
+      7: [
+        { speaker: "Arakne", name: "Arakne", text: "Você realmente conseguiu... O Titã das Chamas foi derrotado!" },
+        { speaker: "Heroi", name: "Herói", text: "O caminho está livre agora?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Livre? HA! Você ainda não entendeu?" },
+        { speaker: "Arakne", name: "Arakne", text: "Aquele titã era a última barreira antes do antigo salão do trono." },
+        { speaker: "Heroi", name: "Herói", text: "Então o Guardião está logo à frente?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Não exatamente. Primeiro você terá que enfrentar aquele que tentou tomar seu lugar." },
+        { speaker: "Heroi", name: "Herói", text: "Quem?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "O Rei da Masmorra." },
+        { speaker: "Heroi", name: "Herói", text: "Outro servo do Guardião?", noNpcHighlight: true },
+        { speaker: "Arakne", name: "Arakne", text: "Não. Alguém que tentou controlar o poder que existe aqui muito antes de você chegar." }
+      ],
+      8: [
+        { speaker: "Heroi", name: "Herói", text: "Mestre?! Como você chegou até aqui?!", noNpcHighlight: true },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "Segui seus passos desde a entrada. Não poderia deixar meu último aprendiz enfrentar tudo isso sozinho." },
+        { speaker: "Heroi", name: "Herói", text: "Você sabia que havia algo tão terrível aqui?", noNpcHighlight: true },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "Conhecia as antigas histórias. O Rei da Masmorra foi um grande feiticeiro que tentou controlar a fonte de poder." },
+        { speaker: "Heroi", name: "Herói", text: "Ele também buscava essa energia?", noNpcHighlight: true },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "Sim. Mas seu desejo por poder acabou consumindo sua humanidade." },
+        { speaker: "Heroi", name: "Herói", text: "E o Guardião?", noNpcHighlight: true },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "O Guardião o derrotou e tomou seu lugar como senhor absoluto da masmorra." },
+        { speaker: "Heroi", name: "Herói", text: "Então ele também foi corrompido...", noNpcHighlight: true },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "Sim. E agora essa mesma energia está reagindo à sua magia." },
+        { speaker: "Heroi", name: "Herói", text: "O que isso significa?", noNpcHighlight: true },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "Que você precisa ter cuidado. Não deixe que o poder que procura destruir acabe destruindo você." },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "Atrás daquela porta está a criatura responsável por tudo isso." },
+        { speaker: "Aldric", name: "Mestre Aldric", text: "Termine o que começou, meu aprendiz." }
+      ],
+      9: [
+        { speaker: "Guardiao", name: "Guardião Final", text: "Impossível... Como um simples mortal..." },
+        { speaker: "Guardiao", name: "Guardião Final", text: "Eu sou... o coração desta masmorra..." },
+        { speaker: "Heroi", name: "Herói", text: "Seu reinado acabou.", noNpcHighlight: true },
+        { speaker: "Guardiao", name: "Guardião Final", text: "Você não entende... Sem mim... tudo isso desaparecerá..." },
+        { speaker: "Gruk", name: "Gruk", text: "Você conseguiu... REALMENTE CONSEGUIU!" },
+        { speaker: "Heroi", name: "Herói", text: "Acabou, Gruk.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Depois de tantos anos... finalmente estamos livres." },
+        { speaker: "Heroi", name: "Herói", text: "A energia da masmorra desapareceu. Acho que os outros também estão livres agora.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "Então talvez seja hora de encontrar um lugar melhor para morar." },
+        { speaker: "Heroi", name: "Herói", text: "Acho que conheço uma vila que poderia receber um orc como você.", noNpcHighlight: true },
+        { speaker: "Gruk", name: "Gruk", text: "HAHAHA! Espero que eles gostem de mim!" },
+        { speaker: "Heroi", name: "Herói", text: "Vamos. Acho que temos uma vila esperando por nós.", noNpcHighlight: true }
+      ]
+    };
+    return dialogues[this.phaseIndex] ?? null;
+  }
+
+  startDialogue(lines, onComplete = null) {
+    if (!lines || lines.length === 0) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    this.dialoguePausedBefore = this.paused;
+    this.paused = true;
+    this.dialogue = {
+      lines,
+      index: 0,
+      visibleCharacters: 0,
+      elapsed: 0,
+      onComplete,
+      container: null
+    };
+    this.dialogue.container = new Container();
+
+    const shade = new Graphics()
+      .rect(0, 0, GAME_WIDTH, GAME_HEIGHT)
+      .fill({ color: 0x080711, alpha: 0.62 });
+    this.dialogue.container.addChild(shade);
+
+    const bottomPanel = new Container();
+    bottomPanel.x = 30;
+    bottomPanel.y = 390;
+
+    bottomPanel.addChild(
+      new Graphics()
+        .roundRect(0, 10, 740, 180, 12)
+        .fill({ color: 0x0d0b18, alpha: 0.96 })
+        .roundRect(0, 10, 740, 180, 12)
+        .stroke({ width: 3, color: 0xa1845d })
+        .roundRect(10, 20, 720, 160, 8)
+        .stroke({ width: 1, color: 0x756047 })
+    );
+
+    const leftPortrait = new Container();
+    leftPortrait.x = 32;
+    leftPortrait.y = 0;
+    bottomPanel.addChild(leftPortrait);
+
+    const rightPortrait = new Container();
+    rightPortrait.x = 686;
+    rightPortrait.y = 0;
+    bottomPanel.addChild(rightPortrait);
+
+    this.dialogue.leftPortrait = leftPortrait;
+    this.dialogue.rightPortrait = rightPortrait;
+    this.dialogue.nameText = new Text({
+      text: "",
+      style: new TextStyle({
+        fontFamily: "Georgia",
+        fontSize: 20,
+        fontWeight: "bold",
+        fill: 0xffe6a8
+      })
+    });
+    this.dialogue.nameText.x = 168;
+    this.dialogue.nameText.y = 44;
+    bottomPanel.addChild(this.dialogue.nameText);
+
+    this.dialogue.dialogueText = new Text({
+      text: "",
+      style: new TextStyle({
+        fontFamily: "Georgia",
+        fontSize: 18,
+        fill: 0xf2e5c4,
+        wordWrap: true,
+        wordWrapWidth: 440,
+        lineHeight: 25
+      })
+    });
+    this.dialogue.dialogueText.x = 168;
+    this.dialogue.dialogueText.y = 82;
+    bottomPanel.addChild(this.dialogue.dialogueText);
+
+    const hint = new Text({
+      text: "ESPAÇO",
+      style: new TextStyle({
+        fontFamily: "monospace",
+        fontSize: 12,
+        fill: 0xc3a978,
+        letterSpacing: 2
+      })
+    });
+    hint.anchor.set(1, 1);
+    hint.x = 710;
+    hint.y = 165;
+    bottomPanel.addChild(hint);
+
+    this.dialogue.container.addChild(bottomPanel);
+    this.container.addChild(this.dialogue.container);
+    this.renderDialogueLine();
+  }
+
+  renderDialogueLine() {
+    if (!this.dialogue) return;
+    const line = this.dialogue.lines[this.dialogue.index];
+    this.dialogue.visibleCharacters = 0;
+    this.dialogue.elapsed = 0;
+    this.dialogue.nameText.text = line.name;
+    this.dialogue.dialogueText.text = "";
+
+    this.dialogue.leftPortrait.removeChildren();
+    this.dialogue.rightPortrait.removeChildren();
+
+    const addPortrait = (container, texture, highlight) => {
+      container.removeChildren();
+      container.addChild(
+        new Graphics()
+          .roundRect(-72, 12, 144, 176, 10)
+          .fill({ color: 0x100d17, alpha: 0.82 })
+          .roundRect(-72, 12, 144, 176, 10)
+          .stroke({ width: highlight ? 3 : 1, color: highlight ? 0xd7c18a : 0x756047 })
+      );
+      if (texture) {
+        const sprite = new Sprite(texture);
+        sprite.anchor.set(0.5);
+        sprite.width = 130;
+        sprite.height = 150;
+        sprite.y = 88;
+        sprite.alpha = highlight ? 1 : 0.45;
+        container.addChild(sprite);
+      }
+    };
+
+    const isHero = line.speaker === "Heroi";
+    addPortrait(this.dialogue.leftPortrait, this.npcTextures.Heroi, isHero);
+    addPortrait(this.dialogue.rightPortrait, this.npcTextures[line.speaker], !isHero);
+  }
+
+  updateDialogue(deltaTime) {
+    if (!this.dialogue) return;
+    const line = this.dialogue.lines[this.dialogue.index];
+    if (this.dialogue.visibleCharacters < line.text.length) {
+      this.dialogue.elapsed += deltaTime;
+      const nextCharacters = Math.floor(this.dialogue.elapsed * 38);
+      this.dialogue.visibleCharacters = Math.min(line.text.length, nextCharacters);
+      this.dialogue.dialogueText.text = line.text.slice(0, this.dialogue.visibleCharacters);
+    }
+  }
+
+  advanceDialogue() {
+    if (!this.dialogue) return;
+    const line = this.dialogue.lines[this.dialogue.index];
+    if (this.dialogue.visibleCharacters < line.text.length) {
+      this.dialogue.visibleCharacters = line.text.length;
+      this.dialogue.dialogueText.text = line.text;
+      return;
+    }
+
+    if (this.dialogue.index < this.dialogue.lines.length - 1) {
+      this.dialogue.index += 1;
+      this.renderDialogueLine();
+      return;
+    }
+
+    const onComplete = this.dialogue.onComplete;
+    this.container.removeChild(this.dialogue.container);
+    this.dialogue.container.destroy({ children: true });
+    this.dialogue = null;
+    this.paused = this.dialoguePausedBefore;
+    if (onComplete) onComplete();
   }
 
   createUpgradeSelection() {

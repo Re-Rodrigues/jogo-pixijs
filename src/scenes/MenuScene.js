@@ -82,9 +82,15 @@ export class MenuScene {
     this.createMenuButton("História", 64, 275, () => {
       this.openModal(
         "História",
-        "Há muito tempo, uma antiga masmorra surgiu nas profundezas da terra. " +
-        "Agora, um aventureiro deve atravessar seus corredores, enfrentar perigos " +
-        "e descobrir o segredo que está escondido no último andar."
+        "Há muitos anos, uma antiga masmorra surgiu nas profundezas de uma montanha " +
+        "próxima a uma pequena vila.\n\n" +
+        "Durante muito tempo, ela permaneceu adormecida. Porém, recentemente, criaturas " +
+        "começaram a sair de suas profundezas e atacar os moradores. Plantações foram " +
+        "destruídas, viajantes desapareceram e a vila passou a viver com medo.\n\n" +
+        "Dizem que, no coração da masmorra, existe uma criatura conhecida como " +
+        "Guardião Final, responsável por controlar tudo que vive naquele lugar.\n\n" +
+        "Um jovem mago, treinado desde criança por um antigo mestre, decide enfrentar " +
+        "a ameaça e descer até as profundezas para acabar com a maldição."
       );
     });
     this.createMenuButton("Como jogar", 64, 345, () => {
@@ -230,20 +236,24 @@ export class MenuScene {
     shade.eventMode = "static";
     this.modal.addChild(shade);
 
+    const isStory = titleText === "História";
+    const panelWidth = isStory ? 720 : 460;
+    const panelHeight = isStory ? 552 : 290;
+
     const panel = new Container();
-    panel.x = 170;
-    panel.y = 155;
+    panel.x = (GAME_WIDTH - panelWidth) / 2;
+    panel.y = (GAME_HEIGHT - panelHeight) / 2;
 
     const panelBackground = new Sprite(new Texture({
       source: this.paperUiTexture.source,
       frame: new Rectangle(8, 144, 112, 84)
     }));
-    panelBackground.width = 460;
-    panelBackground.height = 290;
+    panelBackground.width = panelWidth;
+    panelBackground.height = panelHeight;
     panel.addChild(panelBackground);
     panel.addChild(
       new Graphics()
-        .rect(0, 0, 460, 290)
+        .rect(0, 0, panelWidth, panelHeight)
         .stroke({ width: 3, color: 0x755b3b })
     );
 
@@ -251,35 +261,38 @@ export class MenuScene {
       text: titleText,
       style: new TextStyle({
         fontFamily: "monospace",
-        fontSize: 28,
+        fontSize: isStory ? 34 : 28,
         fill: 0x493522,
         fontWeight: "bold"
       })
     });
-    title.x = 24;
-    title.y = 20;
+    title.anchor.set(isStory ? 0.5 : 0);
+    title.x = isStory ? panelWidth / 2 : 24;
+    title.y = isStory ? 42 : 20;
     panel.addChild(title);
 
     const body = new Text({
       text: bodyText,
       style: new TextStyle({
-        fontFamily: "monospace",
-        fontSize: 18,
+        fontFamily: isStory ? "Georgia" : "monospace",
+        fontSize: isStory ? 17 : 18,
         fill: 0x493522,
         wordWrap: true,
-        wordWrapWidth: 412,
-        lineHeight: 27
+        wordWrapWidth: isStory ? 620 : 412,
+        lineHeight: isStory ? 24 : 27,
+        align: isStory ? "center" : "left"
       })
     });
-    body.x = 24;
-    body.y = 70;
+    body.anchor.set(isStory ? 0.5 : 0);
+    body.x = isStory ? panelWidth / 2 : 24;
+    body.y = isStory ? 280 : 70;
     panel.addChild(body);
 
     const closeButton = new Container();
     closeButton.eventMode = "static";
     closeButton.cursor = "pointer";
-    closeButton.x = 320;
-    closeButton.y = 225;
+    closeButton.x = isStory ? panelWidth / 2 - 58 : 320;
+    closeButton.y = isStory ? panelHeight - 68 : 225;
 
     const closeBackground = new Sprite(new Texture({
       source: this.paperUiTexture.source,

@@ -5,12 +5,12 @@ import {
   PLAYER_SPEED,
   MAGIC_PROJECTILE_DAMAGE,
   MAGIC_PROJECTILE_SPEED,
-  COLORS
+  COLORS,
+  ARENA_INSET
 } from "../config.js";
 
 const PLAYER_SIZE = 24;
 const PLAYER_RENDER_SIZE = 32;
-const WALL_SIZE = 24;
 const DAMAGE_INVULNERABILITY_DURATION = 1;
 const ANIMATION_FRAME_DURATION = 0.12;
 
@@ -104,13 +104,16 @@ export class Player {
     const nextY = this.container.y + yDirection * this.moveSpeed * deltaTime;
     const halfSize = PLAYER_SIZE / 2;
 
-    if (nextX - halfSize >= WALL_SIZE &&
-        nextX + halfSize <= GAME_WIDTH - WALL_SIZE) {
+    const minX = ARENA_INSET + halfSize;
+    const maxX = GAME_WIDTH - ARENA_INSET - halfSize;
+    const minY = ARENA_INSET + halfSize;
+    const maxY = GAME_HEIGHT - ARENA_INSET - halfSize;
+
+    if (nextX >= minX && nextX <= maxX) {
       this.container.x = nextX;
     }
 
-    if (nextY - halfSize >= WALL_SIZE &&
-        nextY + halfSize <= GAME_HEIGHT - WALL_SIZE) {
+    if (nextY >= minY && nextY <= maxY) {
       this.container.y = nextY;
     }
 
